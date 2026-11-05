@@ -7,39 +7,71 @@
 
 #include <gtk/gtk.h>
 
+int grid_data[25][25] = {0}; // declare a 2d array of cells
+
 // just a function to test buttons
 static void print_ah_hummus(GtkWidget *widget, gpointer data) {
 	g_print("ah, hummus.\n");
 }
 
-static void init_window(GtkApplication *app, gpointer user_data) {
-	GtkWidget *window; // declare window inside application
-	GtkWidget *button; // declare button inside application
-	GtkWidget *box; // declare box inside application (to put buttons in)
-	
-	window = gtk_application_window_new(app); // initialize window
+// who remembers turtle from python :D
+static void draw_grid(GtkDrawingArea *area, cairo_t *pen, int w, int h, gpointer data) {
+        // draw cells
+        for (int row = 0; row < 25; row++) {
+                for (int col = 0; col < 25; col++) {
+                        // if cell is off, make it gray; if cell is on, make it green
+                        if (grid_data[row][col] == 0) cairo_set_source_rgb(pen, 0.6, 0.6, 0.6);
+                        else if (grid_data[row][col] == 1) cairo_set_source_rgb(pen, 0, 0.6, 0);
+                        else cairo_set_source_rgb(pen, 1, 0.9, 0.1);
+			
+                        // draw cell
+                        cairo_rectangle(pen, (col * w / 25), (row * h / 25), (w / 25), (h / 25));
+                        // fill cell
+                        cairo_fill_preserve(pen);
+			
+                        // draw cell border
+                        cairo_set_source_rgb(pen, 1, 1, 1);
+                        cairo_stroke(pen);
+                }
+        }
+}
+
+static void init_window(GtkApplication *app, gpointer user_data) {	
+	GtkWidget *window = gtk_application_window_new(app); // initialize window
 	gtk_window_set_title(GTK_WINDOW(window), "game of life"); // set title
-	gtk_window_set_default_size(GTK_WINDOW(window), 500, 500); // set size (in pixels)
+	gtk_window_set_default_size(GTK_WINDOW(window), 1000, 1000); // set size (in pixels)
 	
-	box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0); // initialize box (horizontal buttons 0 pixels apart)
+	GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0); // initialize main box that will have box and grid
+	gtk_widget_set_margin_top(main_box, 10); // put some padding on top
+	gtk_widget_set_margin_bottom(main_box, 10); // put some padding on bottom
+	gtk_window_set_child(GTK_WINDOW(window), main_box); // put main box in window
+	
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10); // initialize box to put buttons in (horizontal buttons 10 pixels apart)
 	gtk_widget_set_halign(box, GTK_ALIGN_CENTER); // horizontally align box to center
-	gtk_widget_set_valign(box, GTK_ALIGN_CENTER); // vertically align box to center
+	gtk_widget_set_valign(box, GTK_ALIGN_START); // vertically align box to top
+	gtk_box_append(GTK_BOX(main_box), box); // adds box to main box
 	
-	gtk_window_set_child(GTK_WINDOW(window), box); // adds box to window
+	GtkWidget *important_button = gtk_button_new_with_label("hummus?"); // initialize most important button
+	g_signal_connect(important_button, "clicked", G_CALLBACK(print_ah_hummus), NULL); // connect clicked signal of button with print_ah_hummus (which has no parameters, so null is passed)
+	g_signal_connect_swapped(important_button, "clicked", G_CALLBACK(gtk_window_destroy), window); // connect clicked signal of button with eating the fucking window
+	gtk_box_append(GTK_BOX(box), important_button); // adds button to box
 	
-	button = gtk_button_new_with_label("hummus?"); // initialize button
-	
-	g_signal_connect(button, "clicked", G_CALLBACK(print_ah_hummus), NULL); // connect clicked signal of button with print_ah_hummus (which has no parameters, so null is passed)
-	g_signal_connect_swapped(button, "clicked", G_CALLBACK(gtk_window_destroy), window); // connect clicked signal of button with eating the fucking window
-	
-	gtk_box_append(GTK_BOX(box), button); // adds button to box
+	GtkWidget *drawing_area = gtk_drawing_area_new(); // initialize drawing area (that will overlap with grid)
+	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(drawing_area), draw_grid, NULL, NULL); // connect drawing area with function that draws grid
+	gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(drawing_area), 725); // set drawing area width
+	gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(drawing_area), 725); // set drawing area height
+	gtk_widget_set_halign(drawing_area, GTK_ALIGN_CENTER); // horizontally align drawing area to center
+	gtk_widget_set_valign(drawing_area, GTK_ALIGN_CENTER); // vertically align drawing area to center
+	gtk_widget_set_hexpand(drawing_area, TRUE); // allow drawing area to expand horizontally
+	gtk_widget_set_vexpand(drawing_area, TRUE); // allow drawing area to expand vertically
+	gtk_box_append(GTK_BOX(main_box), drawing_area); // adds drawing area to main box
 	
 	gtk_window_present(GTK_WINDOW(window)); // make sure user can see window by forcing it to the top of everything
 }
 
 int main(int argc, char** argv) {
 	GtkApplication *game_of_life; // declare application
-	int status;
+	int status; // declare status
 	
 	game_of_life = gtk_application_new("org.gtk.game_of_life", G_APPLICATION_DEFAULT_FLAGS); // initialize application
 	g_signal_connect(game_of_life, "activate", G_CALLBACK(init_window), NULL); // connect activate signal with init_window (last argument to init_window was null)
