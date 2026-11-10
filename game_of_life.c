@@ -12,6 +12,13 @@ int grid_data[25][25] = {0}; // declare a 2d array of cells
 bool currently_drawing = false; // whether mouse is held down on grid
 int draw_cell_type; // whether we're painting dead or alive cells
 
+// function to reset grid
+static void reset_grid(GtkButton *button, gpointer data) {
+	GtkWidget *area = GTK_WIDGET(data);
+	for (int r = 0; r < 25; r++) for (int c = 0; c < 25; c++) grid_data[r][c] = 0;
+	gtk_widget_queue_draw(area);
+}
+
 // just a function to test buttons
 static void print_ah_hummus(GtkWidget *widget, gpointer data) {
 	g_print("ah, hummus.\n");
@@ -45,7 +52,7 @@ static void change_cell(GtkWidget *area, double x, double y) {
         int row = (y / (gtk_widget_get_height(area) / 25));
         int col = (x / (gtk_widget_get_width(area) / 25));
 	
-        if (row >= 0 && row <= 25 && col >= 0 && col <= 25) { // make sure cell is in grid
+        if (row >= 0 && row < 25 && col >= 0 && col < 25) { // make sure cell is in grid
                 grid_data[row][col] = draw_cell_type; // change int value of that cell to the current type of cell we're drawing
                 gtk_widget_queue_draw(area); // redraw grid when function ends
         }
@@ -60,7 +67,7 @@ static void cell_click(GtkGestureClick *gesture, int num_clicks, double x, doubl
 	int row = (y / (gtk_widget_get_height(area) / 25));
 	int col = (x / (gtk_widget_get_width(area) / 25));
 	
-	if (row >= 0 && row <= 25 && col >= 0 && col <= 25) { // make sure cell is in grid
+	if (row >= 0 && row < 25 && col >= 0 && col < 25) { // make sure cell is in grid
 		draw_cell_type = !grid_data[row][col]; // set the type of cell we're drawing
 		change_cell(area, x, y); // change cell
 	}
@@ -79,10 +86,48 @@ static void mouse_moving(GtkEventControllerMotion *controller, double x, double 
 	}
 }
 
+// actual game of life code that goes to next step
+static void next_step(GtkButton *button, gpointer data) {
+	GtkWidget *area = GTK_WIDGET(data);
+	int next_grid[25][25] = {0}; // where next frame goes
+	
+	for (int row = 0; row < 25; row++) {
+		for (int col = 0; col < 25; col++) {
+			int neighbors = 0; // number of alive neighbors
+			
+			// check 8 neighboring cells 
+			for (int n_row = row - 1; n_row <= row + 1; n_row++) {
+				for (int n_col = col - 1; n_col <= col + 1; n_col++) {
+					if (n_row == row && n_col == col) continue; // skip the cell itself
+					
+					// if neighbor is in grid, add it to next grid
+					if (n_row >= 0 && n_row < 25 && n_col >= 0 && n_col < 25) neighbors += grid_data[n_row][n_col];
+				}
+			}
+			
+			// actual game of life rules, deciding what cells change
+			if (grid_data[row][col] == 1) {
+				if (neighbors == 2 || neighbors == 3) next_grid[row][col] = 1;
+				else next_grid[row][col] = 0;
+			}
+			else if (grid_data[row][col] == 0) {
+				if (neighbors == 3) next_grid[row][col] = 1;
+			}
+			else next_grid[row][col] = 2;
+		}
+	}
+	
+	// when done, update original grid data
+	for (int r = 0; r < 25; r++) for (int c = 0; c < 25; c++) grid_data[r][c] = next_grid[r][c];
+	gtk_widget_queue_draw(area); // redraw grid when done
+}
+
 static void init_window(GtkApplication *app, gpointer user_data) {	
 	GtkWidget *window = gtk_application_window_new(app); // initialize window
 	gtk_window_set_title(GTK_WINDOW(window), "game of life"); // set title
 	gtk_window_set_default_size(GTK_WINDOW(window), 1000, 1000); // set size (in pixels)
+	
+	GtkWidget *drawing_area = gtk_drawing_area_new(); // initialize drawing area (that will overlap with grid)
 	
 	GtkWidget *main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0); // initialize main box that will have box and grid
 	gtk_widget_set_margin_top(main_box, 10); // put some padding on top
@@ -101,14 +146,18 @@ static void init_window(GtkApplication *app, gpointer user_data) {
 	gtk_box_append(GTK_BOX(box), stop_button);
 	
 	GtkWidget *step_button = gtk_button_new_with_label("step");
+	g_signal_connect(step_button, "clicked", G_CALLBACK(next_step), drawing_area);
 	gtk_box_append(GTK_BOX(box), step_button);
+	
+	GtkWidget *reset_button = gtk_button_new_with_label("reset");
+	g_signal_connect(reset_button, "clicked", G_CALLBACK(reset_grid), drawing_area);
+	gtk_box_append(GTK_BOX(box), reset_button);
 	
 	GtkWidget *important_button = gtk_button_new_with_label("hummus?"); // initialize most important button 
         g_signal_connect(important_button, "clicked", G_CALLBACK(print_ah_hummus), NULL); // when button is clicked, run  print_ah_hummus (which has no parameters, so null is passed) 
         g_signal_connect_swapped(important_button, "clicked", G_CALLBACK(gtk_window_destroy), window); // when button is clicked, eat the fucking window 
         gtk_box_append(GTK_BOX(box), important_button); // adds button to box
 	
-	GtkWidget *drawing_area = gtk_drawing_area_new(); // initialize drawing area (that will overlap with grid)
 	gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(drawing_area), draw_grid, NULL, NULL); // connect drawing area with function that draws grid
 	gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(drawing_area), 725); // set drawing area width
 	gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(drawing_area), 725); // set drawing area height
