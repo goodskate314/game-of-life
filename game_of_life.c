@@ -4,24 +4,51 @@
 #include <math.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <time.h>
 #include <stdbool.h>
 
 #include <gtk/gtk.h>
+
+typedef struct { // me when i need a struct for exactly one specific edge case
+	GtkWidget *drarea;
+	GtkWidget *stutton;
+} drutton;
+	
 
 int grid_data[25][25] = {0}; // declare a 2d array of cells
 bool currently_drawing = false; // whether mouse is held down on grid
 int draw_cell_type; // whether we're painting dead or alive cells
 static guint timer_id = 0; // id of the timer when simulation is automatically updating
 
-// variables to store cell mouse is in when held down (for interpolation)
+// variables to store starting coordinates and current cell mouse is in while dragging (for interpolation)
+double mouse_start_x;
+double mouse_start_y;
 int mouse_row = -1;
 int mouse_col = -1;
 
 // function to reset grid
 static void reset_grid(GtkButton *button, gpointer data) {
-	if (timer_id != 0) g_source_remove(timer_id); timer_id = 0; // if timer is going, reset it
-	GtkWidget *area = GTK_WIDGET(data);
+	drutton *why = (drutton*)data;
+	
+	currently_drawing = false;
+	mouse_row = -1;
+	mouse_col = -1;
+	gtk_button_set_label(GTK_BUTTON(why->stutton), "start");
+	if (timer_id != 0) { // if timer is going, reset it
+		g_source_remove(timer_id);
+		timer_id = 0;
+	}
+	
+	GtkWidget *area = GTK_WIDGET(why->drarea);
 	for (int r = 0; r < 25; r++) for (int c = 0; c < 25; c++) grid_data[r][c] = 0;
+	gtk_widget_queue_draw(area);
+}
+
+// function to generate a random grid
+static void random_grid(GtkButton *button, gpointer data) {
+	if (timer_id != 0) return;
+	GtkWidget *area = GTK_WIDGET(data);
+	for (int r = 0; r < 25; r++) for (int c = 0; c < 25; c++) grid_data[r][c] = (rand() % 2);
 	gtk_widget_queue_draw(area);
 }
 
@@ -56,7 +83,7 @@ static void draw_line(GtkWidget *area, int row1, int col1, int row2, int col2) {
 }
 
 // just a function to test buttons
-static void print_owo(GtkWidget *widget, gpointer data) {
+static void owo(GtkWidget *widget, gpointer data) {
 	g_print("owo\n");
 }
 
@@ -71,7 +98,7 @@ static void draw_grid(GtkDrawingArea *area, cairo_t *pen, int w, int h, gpointer
                         else cairo_set_source_rgb(pen, 1, 0.9, 0.1); // if yellow is in the grid something has gone horribly wrong
 			
                         // draw cell
-                        cairo_rectangle(pen, (col * w / 25), (row * h / 25), (w / 25), (h / 25));
+                        cairo_rectangle(pen, (col * (double)w / 25), (row * (double)h / 25), ((double)w / 25), ((double)h / 25));
                         // fill cell
                         cairo_fill_preserve(pen);
 			
@@ -82,8 +109,8 @@ static void draw_grid(GtkDrawingArea *area, cairo_t *pen, int w, int h, gpointer
         }
 }
 
-// when cell is clicked, set is_drawing to true and run change_cell
-static void cell_click(GtkGestureClick *gesture, int num_clicks, double x, double y, gpointer data) {
+// when cell is clicked, set currently_drawing to true and change cell
+static void cell_click(GtkGestureDrag *gesture, double x, double y, gpointer data) {
 	if (timer_id != 0) return; // cant draw while simulation is moving
 	
 	GtkWidget *area = GTK_WIDGET(data); // find which widget click was on
@@ -93,6 +120,9 @@ static void cell_click(GtkGestureClick *gesture, int num_clicks, double x, doubl
 	int col = (x / (gtk_widget_get_width(area) / 25.0));
 	
 	if (row >= 0 && row < 25 && col >= 0 && col < 25) { // make sure cell is in grid
+		// save position mouse started
+		mouse_start_x = x;
+		mouse_start_y = y;
 		currently_drawing = true; // drawing is happening
 		
 		// update mouse positions
@@ -106,19 +136,21 @@ static void cell_click(GtkGestureClick *gesture, int num_clicks, double x, doubl
 	}
 }
 
-// when click is released, set is_drawing to false again
-static void cell_release(GtkGestureClick *gesture, int num_clicks, double x, double y, gpointer data) {
+// when drag is released, reset variables
+static void drag_release(GtkGestureDrag *gesture, double dx, double dy, gpointer data) {
 	currently_drawing = false;
 	// mouse is not held down
 	mouse_row = -1;
 	mouse_col = -1;
 }
 
-// when mouse moves while is_drawing is true, change cell(s) underneath mouse
-static void mouse_moving(GtkEventControllerMotion *controller, double x, double y, gpointer data) {
+// when mouse moves while currently_drawing is true, change cell(s) underneath mouse
+static void mouse_moving(GtkGestureDrag *gesture, double dx, double dy, gpointer data) {
 	if (currently_drawing && timer_id == 0) {
 		GtkWidget *area = GTK_WIDGET(data);
 		
+		double x = mouse_start_x + dx;
+		double y = mouse_start_y + dy;
 		int row = (y / (gtk_widget_get_height(area) / 25.0));
         	int col = (x / (gtk_widget_get_width(area) / 25.0));
 		
@@ -175,7 +207,7 @@ static void step(GtkButton *button, gpointer data) {
 	gtk_widget_queue_draw(area);
 }
 
-// update grid when half a second has passed
+// update grid every 100 ms
 static gboolean update_grid(gpointer data) {
 	GtkWidget *area = GTK_WIDGET(data);
 	next_step();
@@ -186,7 +218,10 @@ static gboolean update_grid(gpointer data) {
 // start automatic grid updating
 static void start_grid(GtkButton *button, gpointer data) {
 	// make sure only one timer is going at a time
-	if (timer_id == 0) timer_id = g_timeout_add(200, update_grid, data);
+	if (timer_id == 0) {
+		timer_id = g_timeout_add(100, update_grid, data);
+		gtk_button_set_label(button, "running...");
+	}
 }
 
 // stop automatic grid updating
@@ -195,6 +230,9 @@ static void stop_grid(GtkButton *button, gpointer data) {
 		// stop and reset timer
 		g_source_remove(timer_id);
 		timer_id = 0;
+		
+		GtkButton *other_button = GTK_BUTTON(data);
+		gtk_button_set_label(other_button, "start");
 	}
 }
 
@@ -219,20 +257,29 @@ static void init_window(GtkApplication *app, gpointer user_data) {
 	g_signal_connect(start_button, "clicked", G_CALLBACK(start_grid), drawing_area);
 	gtk_box_append(GTK_BOX(box), start_button);
 	
+	drutton *bleh = g_new(drutton, 1);
+	bleh->drarea = drawing_area;
+	bleh->stutton = start_button;
+	
 	GtkWidget *stop_button = gtk_button_new_with_label("stop");
-	g_signal_connect(stop_button, "clicked", G_CALLBACK(stop_grid), drawing_area);
+	g_signal_connect(stop_button, "clicked", G_CALLBACK(stop_grid), start_button);
 	gtk_box_append(GTK_BOX(box), stop_button);
 	
 	GtkWidget *step_button = gtk_button_new_with_label("step");
 	g_signal_connect(step_button, "clicked", G_CALLBACK(step), drawing_area);
 	gtk_box_append(GTK_BOX(box), step_button);
 	
+	GtkWidget *random_button = gtk_button_new_with_label("random");
+	g_signal_connect(random_button, "clicked", G_CALLBACK(random_grid), drawing_area);
+	gtk_box_append(GTK_BOX(box), random_button);
+	
 	GtkWidget *reset_button = gtk_button_new_with_label("reset");
-	g_signal_connect(reset_button, "clicked", G_CALLBACK(reset_grid), drawing_area);
+	g_signal_connect(reset_button, "clicked", G_CALLBACK(reset_grid), bleh);
+	g_signal_connect_swapped(window, "destroy", G_CALLBACK(g_free), bleh);
 	gtk_box_append(GTK_BOX(box), reset_button);
 	
-	GtkWidget *important_button = gtk_button_new_with_label("close"); // initialize most important button 
-        g_signal_connect(important_button, "clicked", G_CALLBACK(print_owo), NULL); // when button is clicked, run  print_ah_hummus (which has no parameters, so null is passed) 
+	GtkWidget *important_button = gtk_button_new_with_label("owo"); // initialize most important button
+        g_signal_connect(important_button, "clicked", G_CALLBACK(owo), NULL); // when button is clicked, run owo (which has no parameters, so null is passed)
         g_signal_connect_swapped(important_button, "clicked", G_CALLBACK(gtk_window_destroy), window); // when button is clicked, eat the fucking window 
         gtk_box_append(GTK_BOX(box), important_button); // adds button to box
 	
@@ -245,19 +292,18 @@ static void init_window(GtkApplication *app, gpointer user_data) {
 	gtk_widget_set_vexpand(drawing_area, TRUE); // allow drawing area to expand vertically
 	gtk_box_append(GTK_BOX(main_box), drawing_area); // adds drawing area to main box
 	
-	GtkGesture *click = gtk_gesture_click_new(); // initialize a new gesuture that recognizes clicks
-	g_signal_connect(click, "pressed", G_CALLBACK(cell_click), drawing_area); // when user clicks on drawing area, run cell_click
-	g_signal_connect(click, "released", G_CALLBACK(cell_release), drawing_area); // when user releases on drawing area, run cell_release
-	gtk_widget_add_controller(drawing_area, GTK_EVENT_CONTROLLER(click)); // adds "click" signal to drawing area
-	
-	GtkEventController *movement = gtk_event_controller_motion_new(); // initialize a new controller that recognizes mouse movement
-	g_signal_connect(movement, "motion", G_CALLBACK(mouse_moving), drawing_area); // when mouse is moving on drawing area, run mouse_moving
-	gtk_widget_add_controller(drawing_area, movement); // adds "moving" signal to drawing area
+	GtkGesture *drag = gtk_gesture_drag_new(); // initialize a new gesture that recognizes drags
+	g_signal_connect(drag, "drag-begin", G_CALLBACK(cell_click), drawing_area); // when user starts dragging on drawing area, run cell_click
+	g_signal_connect(drag, "drag-update", G_CALLBACK(mouse_moving), drawing_area); // while user is dragging on drawing area, run mouse_moving
+	g_signal_connect(drag, "drag-end", G_CALLBACK(drag_release), drawing_area); // when user stop dragging on drawing area, run drag_release
+	gtk_widget_add_controller(drawing_area, GTK_EVENT_CONTROLLER(drag)); // adds "drag" signal to drawing area
 	
 	gtk_window_present(GTK_WINDOW(window)); // make sure user can see window by forcing it to the top of everything
 }
 
 int main(int argc, char** argv) {
+	srand(time(NULL)); // idk making random numbers in c is weird
+	
 	GtkApplication *game_of_life; // declare application
 	int status; // declare status
 	
